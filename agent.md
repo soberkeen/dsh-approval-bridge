@@ -1,6 +1,9 @@
 # agent.md — @dsh-external/dsh-agent-hud 项目索引
 
 > 给后续 agent 会话的导航文档。读完本文件即可定位一切细节，不必重新侦察内核。
+>
+> **配套项目**：[Agent HUD](https://github.com/soberkeen/agent-hud)（Windows 桌面角色侧边栏）。
+> 本插件是 Agent HUD 的 **DSH（DeepSeek Harness）通知适配辅助插件**——HUD 主程序负责任务栏角色与气泡渲染，本插件负责把 DSH 内核事件（approval/request、user-questions/request、agent/turn-stopping）桥接为 HUD 文件协议请求。HUD 侧实现见其仓库，DSH 侧实现见本仓库。
 
 ## 这是什么
 

@@ -1,5 +1,8 @@
 # HANDOFF-HUD.md — DSH ↔ Agent HUD 对接交接（给 HUD 侧 agent）
 
+> **配套项目**：[Agent HUD](https://github.com/soberkeen/agent-hud)——本插件（`@dsh-external/dsh-agent-hud`）是
+> Agent HUD 的 **DSH 通知适配辅助插件**，HUD 主程序仓库见上方链接。两侧通过文件协议对接，协议契约见 §2。
+
 > 交接方向：DSH 插件侧（`@dsh-external/dsh-agent-hud`）**已开发完成并实装**，本文写给负责
 > Agent HUD 桌面端的 agent，处理 HUD 侧对 DSH 审批桥的接入。读完本文即可动手，
 > 不需要读 DSH 插件源码（但文末有路径速查，需要细节时可查）。
