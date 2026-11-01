@@ -30,7 +30,7 @@ DSH 原生 cordis 插件（v0.2.0）：三种 agent 运行期事件桥接到本�
 | `lib/client.js` | client bundle。`window.__ModuleLoader__.load({id, factory})` 包装；注册 `settings.section`（id `dsh-agent-hud-settings`，order 61）；React 仅作壳，UI 纯 DOM；CSS 模板串**不得含裸反引号** |
 | `scripts/client-register-test.mjs` | client 半边契约测试（mock React/ctx，验证 ModuleLoader 物化 + section 注册），**10/10 绿** |
 | `scripts/host-unit-test.mjs` | host 半边行为测试（协议/超时/中止/清理/设置白名单/日志/race 6 场景/notify 协议/提问透传/turn-stopping/开关矩阵），**52/52 绿** |
-| `scripts/sync-to-plugin-dir.mjs` | 同步到运行副本 `%USERPROFILE%\.dsh\plugins-desk-v1\@dsh-external\dsh-agent-hud\`（源目录含中文路径不能 junction，用复制；`--dry-run` 预览） |
+| `scripts/sync-to-plugin-dir.mjs` | 同步到运行副本 `%USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\`（源目录含中文路径不能 junction，用复制；`--dry-run` 预览） |
 | `.gitignore` | 排除 `node_modules/ .ref/ .log/ .tmp/`（`.ref` 是 100MB+ 内核解包，绝不进 git） |
 | `.ref/` | 只读参考资料：`asar-full\dsh\`（内核全量解包）、`hooks-claude-code\`、`asar-tool\`。**参考用，不构建、不发布** |
 
@@ -66,21 +66,21 @@ node scripts/sync-to-plugin-dir.mjs       # 同步到运行副本
 市场升级全链路（证据齐全）：
 - 市场 UI 只做目录索引与版本比较（`dsh-plugin-market\lib\index.js:642` `update-available` 标记），实际升级全部走 plugin-manager。
 - 升级 = `installBundle(spec)`（`dsh-plugin-manager\lib\index.js`）→ profile 目录内 `pnpm add` → 兼容性校验（engines/peerDependencies）失败时回滚 `RESTORED_FILES = ["package.json", "pnpm-lock.yaml"]` 并重装 node_modules（:742-758、:1293）→ 成功后 `reconcile`（:322-351）**只增删 `dsh.profile.bundles` 数组**。
-- 全程**不碰**：①node_modules 之外的任何目录（plugins-desk-v1 源目录安然无恙）②`link:` 依赖（pnpm 一等公民，lockfile 登记，junction 形态）③profile `cordis.patch.yml` 用户层内容（插件开关只改末条匹配覆盖项的 `disabled`；官方保证用户层跨升级存活）。
+- 全程**不碰**：①node_modules 之外的任何目录（<插件源目录> 源目录安然无恙）②`link:` 依赖（pnpm 一等公民，lockfile 登记，junction 形态）③profile `cordis.patch.yml` 用户层内容（插件开关只改末条匹配覆盖项的 `disabled`；官方保证用户层跨升级存活）。
 - 每个 bundle 的 patch 来自包内 `dsh.bundle.patch` 声明文件——bundle 层与用户层（profile cordis.patch.yml）是分开的层，升级只重排 bundle 依赖本身。
 
 历史踩坑模式（本项目规避对照）：
 | 坑（用户多次踩过） | 本项目规避 |
 |---|---|
-| 插件文件夹直接塞进 profile `node_modules`（不在 lockfile）→ pnpm 重排时被清/幽灵 | 源目录在 `plugins-desk-v1`（pnpm 管辖外）；node_modules 里只有 lockfile 登记的 junction |
+| 插件文件夹直接塞进 profile `node_modules`（不在 lockfile）→ pnpm 重排时被清/幽灵 | 源目录在 `<插件源目录>`（pnpm 管辖外）；node_modules 里只有 lockfile 登记的 junction |
 | 手改 profile `cordis.patch.yml` 加 insert | 本插件 patch 走包内 `cordis.patch.yml`（`dsh.bundle.patch` 声明），从不手写 profile patch |
 | 手改 profile `package.json` 不跑 pnpm → lockfile 失配 → 下次市场升级 `--frozen-lockfile` 失败整体回滚 | 装配走官方 `dsh plugin install`（它自己写 package.json + pnpm + reconcile） |
-| link 源目录被 git clean 等清掉 → junction 断头装载失败 | 源是 `plugins-desk-v1` 独立副本（sync 脚本维护），不在 git 工作区 |
+| link 源目录被 git clean 等清掉 → junction 断头装载失败 | 源是 `<插件源目录>` 独立副本（sync 脚本维护），不在 git 工作区 |
 
 装配 SOP（**已实装 ✅ 20261029**，实测记录）：
-1. `node scripts/sync-to-plugin-dir.mjs`（工作区 → plugins-desk-v1 运行副本）✅
-2. 官方 CLI 装入（**实测可对运行中的 desktop profile 直接执行，无需先退出 DSH**）：`<DSH 安装目录>\resources\runtime\cli\bin\dsh.cmd plugin --profile desktop add %USERPROFILE%//.dsh/plugins-desk-v1/@dsh-external/dsh-agent-hud`（绝对路径 spec；`dsh plugin` = pnpm 转发 + reconcile，写入锁 `withFileLock(package.json)` 只在包操作瞬间持有）。**绝不手写 profile 的 package.json / cordis.patch.yml / 跑裸 pnpm**（官方 skill 明令禁止，`dsh-agent-preset\skills\cordis-plugin-development\SKILL.md:10`）。⚠️ pnpm add 会顺带同步 manifest↔lockfile 的历史漂移（本次顺带修了 billion-context 0.1.208→0.209），属正常修复。
-3. 验证五点（本次 1-3 已验证 ✅）：profile `package.json` 出现 `"@dsh-external/dsh-agent-hud": "link:..."` 且 `dsh.profile.bundles` 末尾追加（本次第 21 位）；`node_modules\@dsh-external\dsh-agent-hud` junction 指向 plugins-desk-v1 ✅；包内 cordis.patch.yml 可达 ✅；GUI 插件管理页列表正常；设置页出现「Agent HUD 审批桥」分区（启动图判据 `GET http://127.0.0.1:19387/plugins/??@dsh-external/dsh-agent-hud/client.js&rev=<sha1前12位>`，rev 变了 = 新代码已装载）；随便升级一个市场包成功且本插件仍在。
+1. `node scripts/sync-to-plugin-dir.mjs`（工作区 → <插件源目录> 运行副本）✅
+2. 官方 CLI 装入（**实测可对运行中的 desktop profile 直接执行，无需先退出 DSH**）：`<DSH 安装目录>\resources\runtime\cli\bin\dsh.cmd plugin --profile desktop add %USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud`（绝对路径 spec；`dsh plugin` = pnpm 转发 + reconcile，写入锁 `withFileLock(package.json)` 只在包操作瞬间持有）。**绝不手写 profile 的 package.json / cordis.patch.yml / 跑裸 pnpm**（官方 skill 明令禁止，`dsh-agent-preset\skills\cordis-plugin-development\SKILL.md:10`）。⚠️ pnpm add 会顺带同步 manifest↔lockfile 的历史漂移（本次顺带修了 billion-context 0.1.208→0.209），属正常修复。
+3. 验证五点（本次 1-3 已验证 ✅）：profile `package.json` 出现 `"@dsh-external/dsh-agent-hud": "link:..."` 且 `dsh.profile.bundles` 末尾追加（本次第 21 位）；`node_modules\@dsh-external\dsh-agent-hud` junction 指向 <插件源目录> ✅；包内 cordis.patch.yml 可达 ✅；GUI 插件管理页列表正常；设置页出现「Agent HUD 审批桥」分区（启动图判据 `GET http://127.0.0.1:19387/plugins/??@dsh-external/dsh-agent-hud/client.js&rev=<sha1前12位>`，rev 变了 = 新代码已装载）；随便升级一个市场包成功且本插件仍在。
 4. peerDependencies 警告（react/react-dom/dsh-client-ui-slots/dsh-client-locale）**无害**：client bundle 依赖由宿主运行时注入，不走 node_modules 解析，与 dsh-vault 同形态。
 
 干扰面自查（本插件对市场零干扰）：包名 `@dsh-external/dsh-agent-hud` 与市场无重名；webServer 前缀路径唯一；settings.section id 独立；approval/request 链参与与包管理无关；无 postinstall/构建脚本。

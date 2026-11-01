@@ -1,4 +1,4 @@
-// sync-to-plugin-dir.mjs — 把开发目录同步到插件运行副本（plugins-desk-v1）
+// sync-to-plugin-dir.mjs — 把开发目录同步到插件运行副本（<插件源目录>）
 //
 // 运行副本约束（skill §2）：ASCII 路径、与 profile 同盘（junction 限制）。
 // 源目录含中文路径，不能直接被 junction 指向 —— 所以用「复制同步」而不是 link。
@@ -14,7 +14,33 @@ import { homedir } from 'node:os'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const SRC = resolve(HERE, '..')
 const PKG = JSON.parse(readFileSync(join(SRC, 'package.json'), 'utf8'))
-const DEST = join(homedir(), '.dsh', 'plugins-desk-v1', PKG.name)
+// 插件源目录（sync 目标根）解析：$DSH_SOURCE_DIR 显式指定；否则扫 ~/.dsh 下各目录，
+// 找含 `<PKG.name>/package.json` 的那个（典型是 ~/.dsh/plugins-<profile>）。不硬编码目录名。
+function detectSourceRoot() {
+  if (process.env.DSH_SOURCE_DIR) return resolve(process.env.DSH_SOURCE_DIR)
+  const dshHome = join(homedir(), '.dsh')
+  const tried = []
+  if (existsSync(dshHome)) {
+    for (const n of readdirSync(dshHome)) {
+      if (n === 'node_modules' || n === 'profiles') continue
+      const c = join(dshHome, n)
+      let isDir = false
+      try {
+        isDir = statSync(c).isDirectory()
+      } catch {
+        continue
+      }
+      if (!isDir) continue
+      tried.push(c)
+      if (existsSync(join(c, ...PKG.name.split('/'), 'package.json'))) return c
+    }
+  }
+  throw new Error(
+    `未找到本插件的源目录（需含 ${PKG.name}/package.json）。候选：${tried.join(' | ') || '无'}；` +
+      '可用 $DSH_SOURCE_DIR 显式指定源目录根。',
+  )
+}
+const DEST = join(detectSourceRoot(), PKG.name)
 
 const dryRun = process.argv.includes('--dry-run')
 

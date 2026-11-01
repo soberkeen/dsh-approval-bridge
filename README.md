@@ -65,6 +65,8 @@ dsh plugin --profile desktop add <插件源目录>/@dsh-external/dsh-agent-hud
 | `pollMs` | `200` | 响应文件轮询间隔 |
 | `logMax` | `200` | 决策日志保留条数 |
 
+> notify 气泡停留时长内置于代码、非配置项：提问提醒 **20 秒**、任务回合完成 **15 秒**（`lib/index.js` 里 `notifyFire` 调用的 `timeoutSec` 常量，修改后需重启 DSH 生效）。
+
 决策日志：`~/.dsh/plugin-data/dsh-agent-hud/decisions.jsonl`，记录每一次裁决的时间、工具名、结果、来源（`hud` / `native` / `none`）与精确原因（内核 approval 链只传 outcome 字符串，精确原因在这里）。
 
 ## 本地 API（可选）
