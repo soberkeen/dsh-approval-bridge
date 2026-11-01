@@ -377,6 +377,23 @@ function findReqId(dir) {
     effects.map((e) => e.name).join('; '))
 }
 
+// ── package.json：DSH 版本声明（官方 manifest 规范）──────────────────────
+// 依据：@deepseek-ai/dsh-package-manifest（README.zh.md 字段表）——
+//   engines.dsh        作者声明的兼容 DSH 版本，SemVer 范围（可含预发布）
+//   dsh.manifestVersion manifest 格式标识，固定 1，独立于 npm 包版本
+// 运行内核实测 0.2.1-rc.4（dsh-agent / dsh-session / dsh-tools 同版本）。
+{
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  const RANGE = /^>=?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\s*\|\|\s*>=?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)*$/
+  const dshRange = pkg.engines?.dsh
+  check('manifest：version 是 SemVer', /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(pkg.version), pkg.version)
+  check('manifest：engines.dsh 已声明且为 SemVer 范围', typeof dshRange === 'string' && RANGE.test(dshRange), dshRange ?? '缺失')
+  check('manifest：engines.dsh 覆盖实测内核 0.2.1-rc.4',
+    typeof dshRange === 'string' && dshRange.split('||').some((s) => s.trim() === '>=0.2.1-rc.4'), dshRange ?? '缺失')
+  check('manifest：dsh.manifestVersion === 1', pkg.dsh?.manifestVersion === 1, String(pkg.dsh?.manifestVersion))
+  check('manifest：engines.node 已声明', typeof pkg.engines?.node === 'string' && pkg.engines.node.length > 0, pkg.engines?.node ?? '缺失')
+}
+
 // ── 收尾 ──────────────────────────────────────────────────────────────────
 rmSync(root, { recursive: true, force: true })
 console.log(`\n=== ${pass}/${pass + fail} 通过 ===`)

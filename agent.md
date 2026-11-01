@@ -7,7 +7,7 @@
 
 ## 这是什么
 
-DSH 原生 cordis 插件（v0.2.0）：三种 agent 运行期事件桥接到本地 **Agent HUD** 桌面侧边栏。
+DSH 原生 cordis 插件（v0.2.1）：三种 agent 运行期事件桥接到本地 **Agent HUD** 桌面侧边栏。
 
 | 事件 | 内核事件 | HUD 形态 | 语义 |
 |---|---|---|---|
@@ -32,7 +32,7 @@ DSH 原生 cordis 插件（v0.2.0）：三种 agent 运行期事件桥接到本�
 | `lib/server.js` | webServer API：前缀 `/@dsh-external/dsh-agent-hud/api`，端点 `/health` `/settings`(GET/POST) `/decisions` `/clear-log` `/test` `/sweep` |
 | `lib/client.js` | client bundle。`window.__ModuleLoader__.load({id, factory})` 包装；注册 `settings.section`（id `dsh-agent-hud-settings`，order 61）；React 仅作壳，UI 纯 DOM；CSS 模板串**不得含裸反引号** |
 | `scripts/client-register-test.mjs` | client 半边契约测试（mock React/ctx，验证 ModuleLoader 物化 + section 注册），**10/10 绿** |
-| `scripts/host-unit-test.mjs` | host 半边行为测试（协议/超时/中止/清理/设置白名单/日志/race 6 场景/notify 协议/提问透传/turn-stopping/开关矩阵），**52/52 绿** |
+| `scripts/host-unit-test.mjs` | host 半边行为测试（协议/超时/中止/清理/设置白名单/日志/race 6 场景/notify 协议/提问透传/turn-stopping/开关矩阵/manifest 声明），**57/57 绿** |
 | `scripts/sync-to-plugin-dir.mjs` | 同步到运行副本 `%USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\`（源目录含中文路径不能 junction，用复制；`--dry-run` 预览） |
 | `.gitignore` | 排除 `node_modules/ .ref/ .log/ .tmp/`（`.ref` 是 100MB+ 内核解包，绝不进 git） |
 | `.ref/` | 只读参考资料：`asar-full\dsh\`（内核全量解包）、`hooks-claude-code\`、`asar-tool\`。**参考用，不构建、不发布** |
@@ -50,12 +50,27 @@ DSH 原生 cordis 插件（v0.2.0）：三种 agent 运行期事件桥接到本�
 - **webServer**：`webServer.register({kind:'prefix', path, handler})`（契约见 `dsh-host-webserver\lib\index.js:326`）；handler 收完整 req/res，自剥前缀；重复 (kind,path) throw。
 - **client 注册**：`ctx.slots.inject('settings.section', () => ctx.slots.register({name:'settings.section', id, order, label, locale}, React组件))`。
 
+## 兼容性与版本声明（官方 manifest 规范）
+
+`package.json` 按官方 `@deepseek-ai/dsh-package-manifest` 规范声明（运行内核 app.asar 文本物理行 1635369 示例 / 1635384-1635388 字段表 / 1635425 限制）：
+
+| 字段 | 值 | 含义 |
+|---|---|---|
+| `engines.dsh` | `>=0.2.1-rc.4 \|\| >=0.2.2-rc.0` | 作者声明的兼容 DSH 版本（SemVer 范围，可含预发布）；覆盖当前实测内核 + 下一个 minor 的预发布，避免内核小版本升级后插件被误判不兼容 |
+| `dsh.manifestVersion` | `1` | manifest 格式标识，固定 `1`，独立于 npm 包版本与 Session 格式版本 |
+| `engines.node` | `>=18` | host 侧只用 node:fs / node:path 等基础 API |
+
+- 实测内核：DSH NEXT `0.2.1-rc.4`（`dsh-agent` / `dsh-session` / `dsh-tools` 全包同版本，app.asar 文本 :1635543 等）。
+- 事件依赖与最低版本：`approval/request` ≥ 0.2.0-rc.x；`agent/turn-stopping` ≥ 0.2.1-rc.x；`user-questions/request` **0.2.1-rc.4 新增**（更早内核上提问提醒静默不投递，审批与回合完成不受影响）。
+- **声明式而非强制**：官方文档明确「当前安装器和加载器不强制检查 `dsh.manifestVersion` 或 `engines.dsh`」（app.asar 文本 :1635425 / :1635528）；plugin-manager 安装结果 schema 预留 `incompatible-version`（:349594）供后续内核版本使用。
+- 版本自检固化在 `scripts/host-unit-test.mjs` 的 manifest 5 例（version / engines.dsh / 覆盖实测内核 / manifestVersion / engines.node）——改声明必跑。
+
 ## 常用命令
 
 ```powershell
 node --check lib/index.js        # 语法（不算验证）
 node scripts/client-register-test.mjs   # client 契约 10/10
-node scripts/host-unit-test.mjs         # host 行为 52/52
+node scripts/host-unit-test.mjs         # host 行为 57/57
 node scripts/sync-to-plugin-dir.mjs --dry-run   # 同步预览
 node scripts/sync-to-plugin-dir.mjs       # 同步到运行副本
 ```

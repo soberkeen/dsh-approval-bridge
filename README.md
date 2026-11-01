@@ -4,7 +4,7 @@
 
 > DSH approval bridge — route agent permission confirmations to a local desktop HUD sidebar.
 >
-> DSH 插件（v0.2.0）：把 agent 运行期间的三类事件桥接到本地 **Agent HUD** 桌面侧边栏。**权限确认**双通道并行——DSH 原生卡片与 HUD 角色气泡同时弹出，任意一边点「允许/拒绝」即生效，先到先得；**DSH 提问**与**任务回合完成**以 HUD 纯提醒气泡（notify，无按钮）告知，无需操作。
+> DSH 插件（v0.2.1）：把 agent 运行期间的三类事件桥接到本地 **Agent HUD** 桌面侧边栏。**权限确认**双通道并行——DSH 原生卡片与 HUD 角色气泡同时弹出，任意一边点「允许/拒绝」即生效，先到先得；**DSH 提问**与**任务回合完成**以 HUD 纯提醒气泡（notify，无按钮）告知，无需操作。
 
 ## 工作方式
 
@@ -54,6 +54,19 @@ dsh plugin --profile desktop add <插件源目录>/@dsh-external/dsh-agent-hud
 
 完整协议契约、双侧职责与联调判据见 [HANDOFF-HUD.md](HANDOFF-HUD.md)。其他桌面通知前端想接入 DSH 审批流，实现同一协议即可。
 
+## 兼容性
+
+| 声明 | 值 | 说明 |
+|---|---|---|
+| `engines.dsh` | `>=0.2.1-rc.4 \|\| >=0.2.2-rc.0` | 依赖的三种内核事件在该版本起实测可用；更高版本未逐一验证 |
+| `dsh.manifestVersion` | `1` | 官方 manifest 格式标识（与 npm 包版本无关） |
+| `engines.node` | `>=18` | host 侧只用 node:fs / node:path 等基础 API |
+| 实测内核 | DSH NEXT `0.2.1-rc.4` | 三种通知端到端验收通过 |
+
+事件依赖：`approval/request`（审批，0.2.0 起）、`agent/turn-stopping`（回合完成，0.2.1 起）、`user-questions/request`（提问，**0.2.1-rc.4 新增**——更早内核上提问提醒静默不投递，其余功能不受影响）。
+
+> `engines.dsh` 与 `dsh.manifestVersion` 是官方规定的**声明式**字段：当前内核的安装器/加载器不强制校验，声明不会拒绝不兼容宿主，但插件市场与诊断界面会读取。
+
 ## 设置
 
 在 DSH 设置页（或 `~/.dsh/plugin-data/dsh-agent-hud/settings.json`）：
@@ -86,7 +99,7 @@ dsh plugin --profile desktop add <插件源目录>/@dsh-external/dsh-agent-hud
 ```powershell
 node --check lib/index.js               # 语法（不算验证）
 node scripts/client-register-test.mjs   # client 契约测试（10 项）
-node scripts/host-unit-test.mjs         # host 行为测试（52 项）
+node scripts/host-unit-test.mjs         # host 行为测试（57 项）
 node scripts/hud-ping.mjs               # 端到端连通性测试（需 HUD 运行，30 秒窗口）
 ```
 

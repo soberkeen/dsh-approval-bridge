@@ -279,7 +279,7 @@ HUD 侧无需再改；插件侧无遗留缺陷。
 - 文件协议 schema / 按钮字面量 / 目录布局是**双侧契约**：任何一方要改，
   先改需求文档 `<需求文档目录>\DSH-插件需求.md`，两侧同步后再动代码。
 - DSH 侧代码改动：改工作区 `<插件工作区>\` → `node scripts/host-unit-test.mjs`
-  （52/52）+ `node scripts/client-register-test.mjs`（10/10）→
+  （57/57）+ `node scripts/client-register-test.mjs`（10/10）→
   `node scripts/sync-to-plugin-dir.mjs` 同步到运行副本 → 重启 DSH。
 - HUD 侧只动 `%LOCALAPPDATA%\AgentHUD\` 相关逻辑，**不要**碰 DSH profile /
   <插件源目录> / DSH 设置。

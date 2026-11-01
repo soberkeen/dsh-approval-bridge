@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-agent-hud",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DSH 通知桥：权限确认（approval/request）双通道并行先到先得；DSH 提问（user-questions/request）与任务回合完成（agent/turn-stopping）以 HUD notify 气泡纯提醒。含设置分区与决策日志。",
   "type": "module",
   "main": "./lib/index.js",
@@ -15,7 +15,8 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=18",
+    "dsh": ">=0.2.1-rc.4 || >=0.2.2-rc.0"
   },
   "keywords": [
     "dsh",
@@ -26,6 +27,7 @@
     "notification"
   ],
   "dsh": {
+    "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
