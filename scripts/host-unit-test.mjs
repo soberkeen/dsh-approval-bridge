@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { buildRequest, askHud, parseResponse, sweepOrphans, cleanupRequest, cleanupRequestRetrying, atomicWriteJson } from '../lib/hud.js'
+import { buildRequest, askHud, parseResponse, sweepOrphans, cleanupRequest, cleanupRequestRetrying, atomicWriteJson, buildNotifyRequest, deliverNotify } from '../lib/hud.js'
 import { loadSettings, saveSettings, appendDecision, readDecisions, clearDecisions, SETTABLE, stateSettingsFile } from '../lib/settings.js'
 
 let pass = 0
@@ -263,6 +263,118 @@ function findReqId(dir) {
   // 决策日志应有并行裁决痕迹（写到隔离 DSH_HOME 里）
   const decisions = readDecisions(stateSettingsFile().replace('settings.json', 'decisions.jsonl'), 10)
   check('race：决策日志记录并行来源', decisions.length >= 4, `${decisions.length} 条（sources: ${[...new Set(decisions.map((d) => d.source))].join(',')}）`)
+}
+
+// ── v0.2.0：notify 协议（buildNotifyRequest / deliverNotify）───────────────
+{
+  const r = buildNotifyRequest({ title: 'T', body: 'B', timeoutSec: 10 })
+  check('notify：id 是 32 位 hex', /^[0-9a-f]{32}$/.test(r.id), r.id)
+  check('notify：kind=notify、无 buttons 字段',
+    r.app === 'dsh' && r.kind === 'notify' && !('buttons' in r) && r.timeout === 10 && Number.isInteger(r.created),
+    JSON.stringify({ kind: r.kind, timeout: r.timeout, hasButtons: 'buttons' in r }))
+  check('notify：timeout 下限钳 3s', buildNotifyRequest({ timeoutSec: 1 }).timeout === 3)
+  const d = deliverNotify({ dropDir: drop, title: '投递测试', body: '内容', timeoutSec: 5 })
+  const raw = JSON.parse(readFileSync(join(drop, `${d.id}.json`), 'utf8'))
+  check('notify：deliverNotify 原子落地且内容一致', raw.id === d.id && raw.kind === 'notify' && raw.title === '投递测试')
+  rmSync(join(drop, `${d.id}.json`), { force: true }) // 手动清（deliverNotify 无自动清理）
+}
+
+// ── v0.2.0：提问提醒 + 任务完成提醒（fire-and-forget，透传原生链）──────────
+{
+  // 预置隔离配置：三种通知全开、指向测试目录
+  atomicWriteJson(stateSettingsFile(), {
+    enabled: true, questionNotify: true, turnNotify: true,
+    timeoutSec: 2, pollMs: 50, logMax: 200, dropDir: drop, respDir: resp,
+  })
+  const effects = []
+  const listeners = {}
+  const ctxMock = {
+    on: (ev, fn) => { (listeners[ev] ??= []).push(fn) },
+    effect: (fn, name) => { effects.push({ name, fn }); return () => {} },
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: () => null,
+  }
+  const { apply } = await import('../lib/index.js')
+  apply(ctxMock)
+  const uq = listeners['user-questions/request']?.[0]
+  const ts = listeners['agent/turn-stopping']?.[0]
+  check('v0.2.0：两个新事件监听器已注册', typeof uq === 'function' && typeof ts === 'function')
+
+  // 提问：投 notify + next() 透传（绝不 claim）
+  {
+    const p = uq({ questions: [{ id: 'q1', question: '用哪个方案？', header: '方案确认' }] }, async () => 'native-answer')
+    await sleep(150)
+    const files = readdirSync(drop).filter((n) => n.endsWith('.json') && !n.includes('.tmp'))
+    check('提问提醒：notify 已投递', files.length === 1, `${files.length} 个文件`)
+    const raw = files.length ? JSON.parse(readFileSync(join(drop, files[0]), 'utf8')) : {}
+    check('提问提醒：kind=notify、标题取 header、正文含问题',
+      raw.kind === 'notify' && !('buttons' in raw) && raw.title === '方案确认' && String(raw.body).includes('用哪个方案'))
+    const out = await p
+    check('提问提醒：next() 透传原生结果', out === 'native-answer', String(out))
+    rmSync(drop, { recursive: true, force: true }); mkdirSync(drop, { recursive: true })
+  }
+
+  // 提问无 header：回落默认标题
+  {
+    const p = uq({ questions: [{ id: 'q2', question: '继续吗？' }] }, async () => 'ok2')
+    await sleep(150)
+    const f = readdirSync(drop).find((n) => n.endsWith('.json'))
+    const raw = f ? JSON.parse(readFileSync(join(drop, f), 'utf8')) : {}
+    check('提问提醒：无 header 回落「DSH 提问」', raw.title === 'DSH 提问')
+    await p
+    rmSync(drop, { recursive: true, force: true }); mkdirSync(drop, { recursive: true })
+  }
+
+  // 任务完成：投 notify（回合号进正文）
+  {
+    ts({ turn: 7, signal: new AbortController().signal })
+    await sleep(150)
+    const f = readdirSync(drop).find((n) => n.endsWith('.json'))
+    const raw = f ? JSON.parse(readFileSync(join(drop, f), 'utf8')) : {}
+    check('任务完成提醒：notify 已投递且正文含回合号',
+      raw.kind === 'notify' && raw.title === 'DSH 任务回合完成' && String(raw.body).includes('回合 7'),
+      JSON.stringify({ title: raw.title, body: raw.body }))
+    rmSync(drop, { recursive: true, force: true }); mkdirSync(drop, { recursive: true })
+  }
+
+  // 任务完成：signal 已中止 → 不投
+  {
+    const ac = new AbortController(); ac.abort()
+    ts({ turn: 8, signal: ac.signal })
+    await sleep(150)
+    check('任务完成提醒：signal 已中止不投递', readdirSync(drop).length === 0, `剩余 ${readdirSync(drop).length}`)
+  }
+
+  // 开关关闭：两种提醒都不投，但提问链路仍透传
+  {
+    atomicWriteJson(stateSettingsFile(), {
+      enabled: true, questionNotify: false, turnNotify: false,
+      timeoutSec: 2, pollMs: 50, logMax: 200, dropDir: drop, respDir: resp,
+    })
+    const out = await uq({ questions: [{ id: 'q3', question: 'x' }] }, async () => 'passthrough')
+    check('提问提醒：questionNotify=false 不投递', readdirSync(drop).length === 0)
+    check('提问提醒：关闭提醒仍透传', out === 'passthrough')
+    ts({ turn: 9, signal: new AbortController().signal })
+    await sleep(150)
+    check('任务完成提醒：turnNotify=false 不投递', readdirSync(drop).length === 0)
+  }
+
+  // 总开关关闭：两种提醒全部旁路
+  {
+    atomicWriteJson(stateSettingsFile(), {
+      enabled: false, questionNotify: true, turnNotify: true,
+      timeoutSec: 2, pollMs: 50, logMax: 200, dropDir: drop, respDir: resp,
+    })
+    ts({ turn: 10, signal: new AbortController().signal })
+    await sleep(150)
+    check('总开关关闭：turn-stopping 旁路', readdirSync(drop).length === 0)
+    await uq({ questions: [{ id: 'q4', question: 'x' }] }, async () => 'still-native')
+    check('总开关关闭：提问仍透传且不投', readdirSync(drop).length === 0)
+  }
+
+  // notify 残留兜底：60 秒延迟清理定时器已挂 effect（dispose 清空）
+  check('v0.2.0：notify 清理定时器 effect 已挂载', effects.some((e) => String(e.name).includes('notify cleanup timers')),
+    effects.map((e) => e.name).join('; '))
 }
 
 // ── 收尾 ──────────────────────────────────────────────────────────────────

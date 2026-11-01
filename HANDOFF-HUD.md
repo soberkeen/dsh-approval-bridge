@@ -10,6 +10,11 @@ DSH（DeepSeek Harness 桌面端）的 agent 运行时会发起**工具权限确
 这些确认请求**同时**投递到：① DSH 原生审批卡片；② Agent HUD（文件协议）。
 **双方平级、先到先得**——用户在 HUD 点「允许/拒绝」与在 DSH 卡片点效果完全相同。
 
+**v0.2.0（2026-11-01）新增两种纯提醒**（fire-and-forget，不等待、无按钮、无需操作）：
+①DSH 发起提问（`user-questions/request`）→ HUD notify 气泡「DSH 提问：…」；
+②agent 回合结束（`agent/turn-stopping`）→ HUD notify 气泡「DSH 任务回合完成」。
+协议见 §2 notify 请求段；HUD 侧 notify 已原生支持，预期零变更。
+
 ## 1. 已定稿语义（DSH 侧行为，HUD 侧按此适配，勿假设兜底模式）
 
 | 行为 | DSH 侧实现 | HUD 侧需要知道的 |
@@ -46,11 +51,28 @@ DSH（DeepSeek Harness 桌面端）的 agent 运行时会发起**工具权限确
 ```
 
 - `app`：来源应用标识。**HUD 必须按 `app === 'dsh'` 过滤**——drop 目录是多应用共享的。
-- `kind`：目前只有 `"confirm"`；HUD 对未知 kind 应忽略（向前兼容）。
-- `timeout`：单位**秒**，HUD 倒计时用它（DSH 侧钳制 ≥5；实际配置下限也是 5）。
+- `kind`：`"confirm"`（带按钮审批）或 `"notify"`（v0.2.0 纯提醒，无按钮）；HUD 对未知 kind 应忽略（向前兼容）。
+- `timeout`：单位**秒**，HUD 倒计时用它（DSH 侧 confirm 钳制 ≥5，notify 钳制 ≥3；实际配置下限也是 5）。
 - `created`：unix 秒，可用于排序/清理判断。
 - **按钮字面量是协议的一部分**：`buttons[0]` 恒为 `"允许"`、`buttons[1]` 恒为 `"拒绝"`。
   HUD 渲染可用 `buttons` 数组本身，但响应必须回写其中之一的**原文**。
+
+notify 请求（v0.2.0，无 buttons 字段、不写 resp）：
+
+```json
+{
+  "id": "a1b2c3…(32hex)",
+  "app": "dsh",
+  "kind": "notify",
+  "title": "DSH 提问 / DSH 任务回合完成",
+  "body": "…提醒文案…",
+  "timeout": 8,
+  "created": 1730000000
+}
+```
+
+- HUD 侧已有 notify 气泡语义（无按钮行、`_life` 定时收摊、消费后立即删 drop、不写 resp）——DSH 侧按此协议投递，**零变更**。
+- DSH 侧对 notify 不等待响应：投递即忘；60 秒后插件会尝试清理残留 drop 文件（HUD 正常消费时文件已被删，清理静默跳过）。
 
 响应（resp）：同名 `<id>.json`：
 
@@ -205,7 +227,7 @@ drop/resp 双空；HUD 重启后启动扫描正常。**剩余验收**：真实�
 ## 5. 变更流程约定
 
 - 文件协议 schema / 按钮字面量 / 目录布局是**双侧契约**：任何一方要改，
-  先改需求文档 `DSH-插件需求.md`，两侧同步后再动代码。
+  先改需求文档 `<需求文档目录>\DSH-插件需求.md`，两侧同步后再动代码。
 - DSH 侧代码改动：改工作区 `<插件工作区>\` → `node scripts/host-unit-test.mjs`
   （32/32）+ `node scripts/client-register-test.mjs`（10/10）→
   `node scripts/sync-to-plugin-dir.mjs` 同步到运行副本 → 重启 DSH。
@@ -222,5 +244,5 @@ drop/resp 双空；HUD 重启后启动扫描正常。**剩余验收**：真实�
 | 运行副本（DSH 实际加载） | `%USERPROFILE%\.dsh\plugins-desk-v1\@dsh-external\dsh-agent-hud\` |
 | DSH 设置/日志 | `%USERPROFILE%\.dsh\plugin-data\dsh-agent-hud\` |
 | HUD 协议目录 | `%LOCALAPPDATA%\AgentHUD\events\{drop,resp}\` |
-| 需求文档 | `DSH-插件需求.md` |
+| 需求文档 | `<需求文档目录>\DSH-插件需求.md` |
 | 项目索引（DSH 侧全景） | `<插件工作区>\agent.md` |

@@ -2,16 +2,27 @@
 
 > DSH approval bridge — route agent permission confirmations to a local desktop HUD sidebar.
 >
-> DSH 插件：把 agent 运行期间的**权限确认请求**桥接到本地 **Agent HUD** 桌面侧边栏。审批请求出现时，DSH 原生卡片与 HUD 角色气泡**同时弹出**，你在任意一边点「允许」或「拒绝」即可放行或阻断工具调用——远程裁决与本地裁决平级同权。
+> DSH 插件（v0.2.0）：把 agent 运行期间的三类事件桥接到本地 **Agent HUD** 桌面侧边栏。**权限确认**双通道并行——DSH 原生卡片与 HUD 角色气泡同时弹出，任意一边点「允许/拒绝」即生效，先到先得；**DSH 提问**与**任务回合完成**以 HUD 纯提醒气泡（notify，无按钮）告知，无需操作。
 
 ## 工作方式
+
+**权限确认（confirm，双向裁决）**
 
 - **并行平级**：审批请求出现时，DSH 原生卡片与 HUD 气泡**同时弹出**；在哪边裁决都生效，先到先得，另一边自动作废。
 - **阻塞语义**：等待决策期间工具调用挂起，不会先斩后奏。
 - **原生不可用也不怕**：DSH 原生 UI / ACP 渠道缺失时，HUD 独立完成裁决（fail-closed）。
 - **超时保护**：默认 110 秒无响应按「拒绝」处理，不会误放行。
+
+**DSH 提问 / 任务回合完成（notify，纯提醒）**
+
+- DSH 发起提问（内核 `user-questions/request`）→ HUD 弹「DSH 提问」提醒气泡（正文含问题文本）；**作答仍在 DSH 原生问答卡片**——插件只提醒，绝不拦截提问链路。
+- agent 回合结束（内核 `agent/turn-stopping`）→ HUD 弹「DSH 任务回合完成」气泡。
+- 两者均 fire-and-forget：投递即忘，不等待、不阻塞、各有独立开关。
+
+**通用工程质量**
+
 - **原子投递**：请求文件临时文件 + rename 原子写入，半截文件不会误判；响应剥 BOM 防御。
-- **幂等清理**：决策后立即清理请求/响应文件（文件锁 EPERM 自动重试）；启动时清扫上次会话残留。
+- **幂等清理**：决策后立即清理请求/响应文件（文件锁 EPERM 自动重试）；启动时清扫上次会话残留；notify 残留 60 秒延迟清理兜底。
 
 ## 安装
 
@@ -34,7 +45,8 @@ dsh plugin --profile desktop add <插件源目录>/@dsh-external/dsh-agent-hud
 
 - 投递目录：`%LOCALAPPDATA%\AgentHUD\events\drop\<id>.json`（32 位 hex id）
 - 响应目录：`%LOCALAPPDATA%\AgentHUD\events\resp\<id>.json`
-- 请求 schema：`{id, app:'dsh', kind:'confirm', title, body, buttons:['允许','拒绝'], timeout, created}`
+- confirm 请求 schema：`{id, app:'dsh', kind:'confirm', title, body, buttons:['允许','拒绝'], timeout, created}`
+- notify 请求 schema（v0.2.0）：`{id, app:'dsh', kind:'notify', title, body, timeout, created}`（无 buttons、不写 resp，消费后即删）
 - 响应 schema：`{id, button:'允许'|'拒绝'|null, timeout:boolean}`（无 BOM 原子写）
 - 监听要求：FSW 必须同时覆盖 `Created` + `Renamed` 事件（请求是同目录 rename 落地的，只挂 `Created` 会全盲）+ 启动扫描
 
@@ -46,7 +58,9 @@ dsh plugin --profile desktop add <插件源目录>/@dsh-external/dsh-agent-hud
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `enabled` | `true` | 总开关（关闭后插件完全不接管审批） |
+| `enabled` | `true` | 总开关（关闭后插件完全旁路） |
+| `questionNotify` | `true` | DSH 提问时弹 HUD 提醒气泡 |
+| `turnNotify` | `true` | agent 回合结束时弹 HUD 提醒气泡 |
 | `timeoutSec` | `110` | 等待 HUD 决策的超时秒数 |
 | `pollMs` | `200` | 响应文件轮询间隔 |
 | `logMax` | `200` | 决策日志保留条数 |
@@ -68,7 +82,7 @@ dsh plugin --profile desktop add <插件源目录>/@dsh-external/dsh-agent-hud
 ```powershell
 node --check lib/index.js               # 语法（不算验证）
 node scripts/client-register-test.mjs   # client 契约测试（10 项）
-node scripts/host-unit-test.mjs         # host 行为测试（35 项）
+node scripts/host-unit-test.mjs         # host 行为测试（52 项）
 node scripts/hud-ping.mjs               # 端到端连通性测试（需 HUD 运行，30 秒窗口）
 ```
 

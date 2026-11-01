@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-agent-hud",
-  "version": "0.1.0",
-  "description": "DSH 权限确认审批桥：agent 运行期的 approval/request 同时弹出到 DSH 原生卡片与本地 Agent HUD 桌面侧边栏（文件协议），双方平级先到先得，用户在 HUD 角色气泡上远程放行/阻断。含设置分区与决策日志。",
+  "version": "0.2.0",
+  "description": "DSH 通知桥：权限确认（approval/request）双通道并行先到先得；DSH 提问（user-questions/request）与任务回合完成（agent/turn-stopping）以 HUD notify 气泡纯提醒。含设置分区与决策日志。",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
