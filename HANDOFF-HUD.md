@@ -259,20 +259,24 @@ drop/resp 双空；HUD 重启后启动扫描正常。**剩余验收**：真实�
    复现时请带 `-dbg` 并检查 `shown ok` 是否仍出现在 Dbg 日志（若日志说 shown 而肉眼
    不可见，问题在气泡渲染/定位/收摊路径，而非消费路径）。
 
-**验收结果**：①②③已由 HUD agent 实弹通过（confirm 弹出且 resp 回写全通；notify
-挂满 60 秒自动收摊；anim-err.log shown ok）；④三种通知目视复测在新参数
-（提问 20s / 回合完成 15s）下进行，注意 notify 观察窗口 = 其 timeout 秒数。
+**验收结果：全部通过 ✅**（2026-11-01 15:00 最终复测，HUD v2.9.7 + 插件 timeout 20s/15s）
 
-DSH 侧 v0.2.0 投递链路已全部实证正常（desktop-next.log 投递日志）：
-`提问提醒已投 HUD（2 问）` ×2、`（1 问）` ×1、`任务完成提醒已投 HUD（turn=13）`——
-turn-stopping serial 事件每回合触发 ✓。
+| # | 测试 | 落盘证据 | 目视 |
+|---|---|---|---|
+| ① | confirm 连通性 | `06:59:22Z hud-allow（允许，1433ms）source:probe`（decisions.jsonl） | ✅ 卡片+按钮弹出，点击后收摊，测试成功 |
+| ② | 提问提醒 notify | `06:57:31Z 提问提醒已投 HUD（2 问）`（desktop-next.log） | ✅ 气泡挂满 20 秒自动收摊 |
+| ③ | 回合完成 notify | `06:58:39Z 任务完成提醒已投 HUD（turn=16）` | ✅ 气泡弹出 |
+
+①②③ = HANDOFF-DSH §6 中 HUD agent 的实弹验收；④ = 本次 DSH 侧三种通知目视复测。
+turn-stopping serial 事件每回合触发（`turn=13`/`turn=16` 均落日志）✓。
+HUD 侧无需再改；插件侧无遗留缺陷。
 
 ## 5. 变更流程约定
 
 - 文件协议 schema / 按钮字面量 / 目录布局是**双侧契约**：任何一方要改，
   先改需求文档 `<需求文档目录>\DSH-插件需求.md`，两侧同步后再动代码。
 - DSH 侧代码改动：改工作区 `<插件工作区>\` → `node scripts/host-unit-test.mjs`
-  （32/32）+ `node scripts/client-register-test.mjs`（10/10）→
+  （52/52）+ `node scripts/client-register-test.mjs`（10/10）→
   `node scripts/sync-to-plugin-dir.mjs` 同步到运行副本 → 重启 DSH。
 - HUD 侧只动 `%LOCALAPPDATA%\AgentHUD\` 相关逻辑，**不要**碰 DSH profile /
   plugins-desk-v1 / DSH 设置。
