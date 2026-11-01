@@ -1,0 +1,50 @@
+{
+  "name": "@dsh-external/dsh-agent-hud",
+  "version": "0.1.0",
+  "description": "DSH 权限确认审批桥：agent 运行期的 approval/request 同时弹出到 DSH 原生卡片与本地 Agent HUD 桌面侧边栏（文件协议），双方平级先到先得，用户在 HUD 角色气泡上远程放行/阻断。含设置分区与决策日志。",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "approval",
+    "agent-hud",
+    "notification"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@deepseek-ai/dsh-client-ui-slots": "*",
+    "@deepseek-ai/dsh-client-locale": "*"
+  },
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/hud.js && node --check lib/settings.js && node --check lib/server.js && node --check lib/client.js",
+    "test": "node scripts/client-register-test.mjs"
+  }
+}

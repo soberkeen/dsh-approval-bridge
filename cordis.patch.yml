@@ -1,0 +1,10 @@
+# @dsh-external/dsh-agent-hud 的 bundle patch
+#
+# 本包如何挂进 DSH 插件树的唯一声明。**必须含 insert 块**：
+# 空列表 [] = 不装配 = loader 里没有本插件的 entry = host 与 client 半边一起缺席，
+# 且不报错（现象：设置里看不到分区；/plugins/??<pkg>/client.js 探测 404）。
+#
+# id 用插件短名（与 profile 的 cordis.patch.yml 寻址一致），name 用完整包名。
+- insert:
+    - id: dsh-agent-hud
+      name: '@dsh-external/dsh-agent-hud'

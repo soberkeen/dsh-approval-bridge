@@ -1,0 +1,226 @@
+# HANDOFF-HUD.md — DSH ↔ Agent HUD 对接交接（给 HUD 侧 agent）
+
+> 交接方向：DSH 插件侧（`@dsh-external/dsh-agent-hud`）**已开发完成并实装**，本文写给负责
+> Agent HUD 桌面端的 agent，处理 HUD 侧对 DSH 审批桥的接入。读完本文即可动手，
+> 不需要读 DSH 插件源码（但文末有路径速查，需要细节时可查）。
+
+## 0. 一句话背景
+
+DSH（DeepSeek Harness 桌面端）的 agent 运行时会发起**工具权限确认**。DSH 侧插件已把
+这些确认请求**同时**投递到：① DSH 原生审批卡片；② Agent HUD（文件协议）。
+**双方平级、先到先得**——用户在 HUD 点「允许/拒绝」与在 DSH 卡片点效果完全相同。
+
+## 1. 已定稿语义（DSH 侧行为，HUD 侧按此适配，勿假设兜底模式）
+
+| 行为 | DSH 侧实现 | HUD 侧需要知道的 |
+|---|---|---|
+| 投递时机 | 审批请求到达的**瞬间**写 drop 文件 | 气泡出现即代表一个真实待决审批 |
+| 并行裁决 | HUD 与原生卡片同时等待，`Promise.race` 先到先得 | 用户在任一边点都生效；另一边作废 |
+| 插件等待超时 | 默认 **110 秒**（请求 `timeout` 字段同值）→ 按拒绝处理 | HUD 倒计时归零必须自己收摊（见 §3.3） |
+| 响应读取 | 插件每 **200ms** 轮询 resp 目录 | resp 写入后最多 200ms 被消费 |
+| 请求作废 | 原生渠道先裁决 / agent 取消 → 插件**删除两侧文件**并退出等待 | 文件消失 ≠ HUD 必须立即收摊（见 §3.4 体验瑕疵） |
+| HUD 未运行 | 插件超时后按拒绝处理（fail-closed） | 无需心跳/存活协议 |
+
+## 2. 文件协议（**契约，不可单方变更**）
+
+目录（`%LOCALAPPDATA%` = `C:\Users\<user>\AppData\Local`）：
+
+```
+%LOCALAPPDATA%\AgentHUD\events\drop\   ← DSH 插件写请求，HUD 读
+%LOCALAPPDATA%\AgentHUD\events\resp\   ← HUD 写响应，DSH 插件读
+```
+
+请求（drop）：`<id>.json`，`<id>` 为 **32 位小写 hex**（16 字节随机，全局唯一）：
+
+```json
+{
+  "id": "a1b2c3…(32hex)",
+  "app": "dsh",
+  "kind": "confirm",
+  "title": "DSH 权限确认 · <工具名>",
+  "body": "工具「xxx」请求执行许可：\n<原因>\n\n允许 / 拒绝（110 秒未响应将自动拒绝）",
+  "buttons": ["允许", "拒绝"],
+  "timeout": 110,
+  "created": 1730000000
+}
+```
+
+- `app`：来源应用标识。**HUD 必须按 `app === 'dsh'` 过滤**——drop 目录是多应用共享的。
+- `kind`：目前只有 `"confirm"`；HUD 对未知 kind 应忽略（向前兼容）。
+- `timeout`：单位**秒**，HUD 倒计时用它（DSH 侧钳制 ≥5；实际配置下限也是 5）。
+- `created`：unix 秒，可用于排序/清理判断。
+- **按钮字面量是协议的一部分**：`buttons[0]` 恒为 `"允许"`、`buttons[1]` 恒为 `"拒绝"`。
+  HUD 渲染可用 `buttons` 数组本身，但响应必须回写其中之一的**原文**。
+
+响应（resp）：同名 `<id>.json`：
+
+```json
+{ "id": "<同请求 id>", "button": "允许" }      // 用户点允许
+{ "id": "<同请求 id>", "button": "拒绝" }      // 用户点拒绝
+{ "id": "<同请求 id>", "button": null, "timeout": true }  // HUD 侧倒计时归零（可选，见 §3.3）
+```
+
+DSH 侧解析规则（`parseResponse`）：`button === "允许"` → 放行；`button === "拒绝"` → 拒绝；
+`button` 非法但 `timeout === true` → 拒绝；其余（含半截/损坏 JSON）→ 视为未就绪，继续等。
+
+**写入方式硬要求（两侧都是）**：临时文件 + rename（同盘 rename 原子）。
+DSH 侧实现：先写 `<file>.<pid>.tmp` 再 `renameSync`。HUD 侧必须同款——否则插件 200ms
+轮询可能读到半截 JSON（虽然容错不崩，但会浪费轮次、制造无谓延迟）。
+
+> ⚠️ **HUD 侧监听实现警告（联调实测踩过，见 §4.4）**：DSH 的原子写是**同目录
+> rename**——.NET `FileSystemWatcher` 对同目录 rename 触发的是 **`Renamed` 事件，
+> 不是 `Created`**。只挂 `Created` 处理器的 FSW **永远收不到 DSH 的实时请求**
+> （且 `.tmp` 中间名不匹配 `*.json` filter，写 tmp 阶段也无事件）。监听必须
+> 同时覆盖：`Created`（外部直接写入，如手工测试）+ `Renamed`（DSH 标准协议）+
+> 启动扫描（readdir 捡重启前落地的旧文件）。三者缺一都有断链窗口。
+
+## 3. HUD 侧职责清单
+
+### 3.1 必须
+
+1. **监听 drop 目录**：FSW 需同时处理 `Created` + `Renamed` 事件并做启动扫描
+   （原因见 §2 末尾警告与 §4.4），或直接用低频轮询（每 2 秒 readdir，成本极低）。
+   发现 `app === 'dsh' && kind === 'confirm'` 的新请求 → 渲染气泡。
+2. **按 `timeout` 秒倒计时**；期间展示 `title` / `body` / 两个按钮。
+3. **用户点击 → 原子写 resp**（§2 响应格式）。写完 resp 后可立即收摊气泡
+   （插件 200ms 内会来读并删除两侧文件）。
+4. **倒计时归零 → 自己收摊气泡**。推荐同时写 `{id, button:null, timeout:true}` 响应
+   （让 DSH 侧立即拿到明确信号、记录精确日志）；不写也可以——DSH 侧到点按超时拒绝。
+5. **支持并发多请求**：每个请求独立 `<id>`，可能同时挂多个气泡（多 agent 并行时）。
+   同名文件 id 唯一不会互相覆盖。
+6. **只消费 `app === 'dsh'` 的请求**；其他应用的请求按 HUD 自己的多应用逻辑处理，
+   不要动它们的文件。
+
+### 3.2 建议
+
+- **写 resp 前先检查气泡是否还该写**：若用户长时间不点而气泡仍在倒计时，正常；
+  若气泡已因用户点击写完 resp，不要重复写。
+- **resp 目录自清理**：极端时序下（DSH 侧已放弃等待并删文件之后，HUD 才写 resp）
+  resp 会留下无人认领的 `<id>.json` 残留（id 唯一，不会被复用误读）。
+  建议 HUD 启动时清理 resp 目录中 `created`/修改时间超过 10 分钟的文件
+  （只清自己写的、能解析出 id 的；不认识的文件别动）。
+- **drop 目录不要主动清理**：DSH 插件启动时会 sweep 掉 `app === 'dsh'` 的孤儿
+  （崩溃残留），清理权在 DSH 侧。
+
+### 3.3 双侧超时赛跑（重要）
+
+DSH 侧 deadline 与请求 `timeout` 字段同值（默认 110s，下限 5s，上限 600s，可在设置改）。
+两侧时钟独立（都从各自「看到请求」起算，误差 ≤ 文件投递延迟），所以：
+
+- HUD 倒计时先归零 → 写 `timeout:true` 响应 → DSH 侧读到按拒绝处理；
+- DSH 侧 deadline 先到 → 删两侧文件、按拒绝处理 → HUD 稍后倒计时归零自己收摊即可，
+  写 resp 也没人读（残留见 §3.2 建议清理）。
+
+**HUD 不要把倒计时设得比请求 `timeout` 更长**——那会让用户体验与 DSH 日志不一致。
+
+### 3.4 已知体验瑕疵（协议限制，已记录在案，HUD 侧能优化一半）
+
+- **DSH 原生先裁决**：插件删除 drop/resp 文件，但**没有撤回消息**——HUD 气泡只能
+  等自己倒计时归零收摊（最长残留 `timeout` 秒的「僵尸气泡」）。
+  **HUD 侧可优化**：气泡渲染期间顺手 watch 自己那条 drop 文件——文件被删 = 对方已收走
+  → 提前收摊气泡。这是纯优化，不做也不出错（倒计时兜底）。
+- **HUD 先点**：DSH 原生卡片要等用户在原生 UI 再点一下才消失（DSH waterfall 无取消
+  机制，DSH 侧无法优化）。HUD 侧无事可做。
+
+## 4. 联调与验证
+
+### 4.1 连通性测试（不用真实审批）
+
+DSH 设置页 →「Agent HUD 审批桥」分区 → 状态标签 → **「测试 HUD」按钮**：
+发出一条 `title: "HUD 连通性测试"` 的请求（20 秒窗口）。HUD 弹气泡 → 点「允许」→
+设置页应出现放行记录；不响应 → 按钮报「无响应」。
+
+也可以直接打 API（DSH webServer 前缀路由）：
+
+```
+POST http://127.0.0.1:<port>/@dsh-external/dsh-agent-hud/api/test
+GET  …/api/health        GET …/api/settings
+GET  …/api/decisions?limit=20    POST …/api/clear-log    POST …/api/sweep
+```
+
+### 4.2 真实审批联调
+
+1. 让 DSH agent 跑一个需要审批的工具（如 `pwsh` 写操作）。
+2. 预期：**DSH 原生卡片与 HUD 气泡同时出现**（并行平级的核心验收点）。
+3. 在 HUD 点「允许」→ 工具继续执行；DSH 设置页日志出现 `source: "hud"`、
+   `outcome: "allowed-once"` 的记录。
+4. 再来一次，在 DSH 原生卡片点 → HUD 气泡作废（`source: "native"`）。
+5. 第三次，两边都不点 → 110 秒后工具被拒，日志 `detail` 含「HUD 未响应」。
+
+### 4.3 DSH 侧健康判据
+
+- 插件已实装 desktop profile（`dsh.profile.bundles` 含 `@dsh-external/dsh-agent-hud`，
+  junction → `%USERPROFILE%\.dsh\plugins-desk-v1\@dsh-external\dsh-agent-hud\`）。
+- client 启动图：`GET http://127.0.0.1:19387/plugins/??@dsh-external/dsh-agent-hud/client.js`
+  返回 JS 即装配成功。
+- DSH 状态目录：`~/.dsh/plugin-data/dsh-agent-hud/`（`settings.json` + `decisions.jsonl`）。
+
+### 4.4 联调实录（2026-11-01）：四轮实验定位 → HUD v2.9.4 四断点全修 → 链路全通 ✅
+
+**排查期证据**（DSH 侧用 `.tmp/hud-ping.mjs` / `.tmp/hud-trace*.mjs` 发真实协议请求，
+逐秒观测 drop/resp 文件流向，结合用户目视确认气泡）：
+
+| # | 写入方式 | FSW 消费 | resp 回写 | 气泡 |
+|---|---|---|---|---|
+| 1-2 | tmp+rename（**DSH 标准协议**） | ❌ 文件 15-30s 无人动 | — | — |
+| 3-4 | writeFileSync 直接写 | ✅ 1s 消费 | ❌ 30s 从不出现 | ❌ 用户确认没弹 |
+
+**断点 1 —— FSW 收不到标准协议写入 ✅ 已修（HUD v2.9.4）**
+- 根因：DSH 原子写 = 同目录 rename → FSW 触发 `Renamed` 而非 `Created`；只挂 Created 收不到。
+- 修复：去掉 filter，`Created`+`Renamed`+`Changed` 三事件全挂统一 `QueueEventFile`
+  按扩展名分拣（`.tmp` 天然被过滤），启动扫描保留。Dbg 日志实证
+  `FSW Renamed → consume drop → HandleEventFile shown ok`。
+
+**断点 2 —— 消费后不渲染、不回写 ✅ 已修（HUD v2.9.4，双根因叠加）**
+- 根因 A：v2.9.2 气泡自适应重构时 `NotifyBubble.OpenAt` 的 `Popup.IsOpen = true;`
+  被补丁脚本吞行——气泡从未弹出（实验 3-4 的全部假象由此而来）。
+- 根因 B：先删后验空读竞态——`Created` 事件早于 writer 完成，读到空/半截照样删文件。
+- 修复：读+解析一体重试（8×150ms），解析成功才删；放弃时保留文件等下一事件。
+
+**断点 3 —— resp BOM ✅ 已修（HUD v2.9.4，DSH 侧同步加固）**
+- 根因：HUD 旧 `WriteResponse` 用带 BOM 的 UTF-8，Node `JSON.parse` 遇 `\uFEFF` 抛错
+  → resp 永远「未就绪」直到超时。HUD 已改无 BOM 写出；DSH 侧 `readJsonSafe`
+  亦已加剥 BOM 防御（带测试用例，host-unit-test 32/32）。
+
+**断点 4 —— 气泡定位回归 ✅ 已修（HUD v2.9.4）：OpenAt 两分支偏移写反致气泡盖住
+HUD 面板，已修正（气泡贴 HUD 外侧、尾巴指向角色）。
+
+**最终验证（2026-11-01）**：
+```
+node scripts/hud-ping.mjs
+→ {"ok":true,"decision":"allow","elapsedMs":25247}   # v2.9.4 时期，人工点击，全链路通
+→ {"ok":true,"decision":"allow","elapsedMs":1429}    # v2.9.5 时期，收摊无闪退 ✅
+```
+drop/resp 双空；HUD 重启后启动扫描正常。**剩余验收**：真实审批三连测（§4.2），
+需在 DSH 真实 agent 会话里走一遍 allow / deny / 超时。
+
+**DSH 侧后续加固（commit 5f17187 + ac16bcb，实测抓到）**：
+1. `readJsonSafe` 剥 BOM 防御——对齐 HANDOFF-DSH §1 断点 3 建议，带测试用例。
+2. 贴边 final poll——HUD 倒计时归零写 timeout resp 的时刻 ≈ DSH deadline + 写盘延迟
+   （实测差 36ms 漏读），等待循环退出后补读一次，timeout resp 不再被错过。
+3. `cleanupRequestRetrying`——杀毒/索引器短暂锁文件导致 unlink EPERM 时（实测残留过
+   一个 resp），每 200ms 重试最多 10 次，彻底失败 warn。drop/resp 残留不再依赖
+   HUD 10 分钟兜底。
+
+## 5. 变更流程约定
+
+- 文件协议 schema / 按钮字面量 / 目录布局是**双侧契约**：任何一方要改，
+  先改需求文档 `DSH-插件需求.md`，两侧同步后再动代码。
+- DSH 侧代码改动：改工作区 `<插件工作区>\` → `node scripts/host-unit-test.mjs`
+  （32/32）+ `node scripts/client-register-test.mjs`（10/10）→
+  `node scripts/sync-to-plugin-dir.mjs` 同步到运行副本 → 重启 DSH。
+- HUD 侧只动 `%LOCALAPPDATA%\AgentHUD\` 相关逻辑，**不要**碰 DSH profile /
+  plugins-desk-v1 / DSH 设置。
+
+## 6. 路径速查
+
+| 项 | 路径 |
+|---|---|
+| DSH 插件工作区（源码） | `<插件工作区>\` |
+| 协议层实现（参考读） | `lib/hud.js`（协议、原子写、轮询、清理） |
+| 审批桥主逻辑（参考读） | `lib/index.js`（并行 race 应答器） |
+| 运行副本（DSH 实际加载） | `%USERPROFILE%\.dsh\plugins-desk-v1\@dsh-external\dsh-agent-hud\` |
+| DSH 设置/日志 | `%USERPROFILE%\.dsh\plugin-data\dsh-agent-hud\` |
+| HUD 协议目录 | `%LOCALAPPDATA%\AgentHUD\events\{drop,resp}\` |
+| 需求文档 | `DSH-插件需求.md` |
+| 项目索引（DSH 侧全景） | `<插件工作区>\agent.md` |
