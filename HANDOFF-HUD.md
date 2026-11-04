@@ -175,9 +175,9 @@ GET  …/api/decisions?limit=20    POST …/api/clear-log    POST …/api/sweep
 ### 4.3 DSH 侧健康判据
 
 - 插件已实装 desktop profile（`dsh.profile.bundles` 含 `@dsh-external/dsh-agent-hud`，
-  junction → `%USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\`）。
-- client 启动图：`GET http://127.0.0.1:19387/plugins/??@dsh-external/dsh-agent-hud/client.js`
-  返回 JS 即装配成功。
+  junction → `C:\Users\sober\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\`）。
+- client 启动图：`GET http://127.0.0.1:<GUI端口>/plugins/??@dsh-external/dsh-agent-hud/client.js`
+  返回 JS 即装配成功（端口随实例变化）。
 - DSH 状态目录：`~/.dsh/plugin-data/dsh-agent-hud/`（`settings.json` + `decisions.jsonl`）。
 
 ### 4.4 联调实录（2026-11-01）：四轮实验定位 → HUD v2.9.4 四断点全修 → 链路全通 ✅
@@ -216,8 +216,9 @@ node scripts/hud-ping.mjs
 → {"ok":true,"decision":"allow","elapsedMs":25247}   # v2.9.4 时期，人工点击，全链路通
 → {"ok":true,"decision":"allow","elapsedMs":1429}    # v2.9.5 时期，收摊无闪退 ✅
 ```
-drop/resp 双空；HUD 重启后启动扫描正常。**剩余验收**：真实审批三连测（§4.2），
-需在 DSH 真实 agent 会话里走一遍 allow / deny / 超时。
+drop/resp 双空；HUD 重启后启动扫描正常。真实审批后续已实测通过：allow 分支 ✅（用户确认
+原生卡片与 HUD 气泡同时弹出、HUD 点击生效、日志 `source: "hud"`）；deny / 双超时分支
+未单独走查（协议语义由 host-unit-test race 场景覆盖）。
 
 **DSH 侧后续加固（commit 5f17187 + ac16bcb，实测抓到）**：
 1. `readJsonSafe` 剥 BOM 防御——对齐 HANDOFF-DSH §1 断点 3 建议，带测试用例。
@@ -291,8 +292,8 @@ HUD 侧无需再改；插件侧无遗留缺陷。
 | DSH 插件工作区（源码） | `<插件工作区>\` |
 | 协议层实现（参考读） | `lib/hud.js`（协议、原子写、轮询、清理） |
 | 审批桥主逻辑（参考读） | `lib/index.js`（并行 race 应答器） |
-| 运行副本（DSH 实际加载） | `%USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\` |
-| DSH 设置/日志 | `%USERPROFILE%\.dsh\plugin-data\dsh-agent-hud\` |
+| 运行副本（DSH 实际加载） | `C:\Users\sober\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\` |
+| DSH 设置/日志 | `C:\Users\sober\.dsh\plugin-data\dsh-agent-hud\` |
 | HUD 协议目录 | `%LOCALAPPDATA%\AgentHUD\events\{drop,resp}\` |
 | 需求文档 | `<需求文档目录>\DSH-插件需求.md` |
 | 项目索引（DSH 侧全景） | `<插件工作区>\agent.md` |

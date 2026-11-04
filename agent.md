@@ -33,15 +33,15 @@ DSH 原生 cordis 插件（v0.2.1）：三种 agent 运行期事件桥接到本�
 | `lib/client.js` | client bundle。`window.__ModuleLoader__.load({id, factory})` 包装；注册 `settings.section`（id `dsh-agent-hud-settings`，order 61）；React 仅作壳，UI 纯 DOM；CSS 模板串**不得含裸反引号** |
 | `scripts/client-register-test.mjs` | client 半边契约测试（mock React/ctx，验证 ModuleLoader 物化 + section 注册），**10/10 绿** |
 | `scripts/host-unit-test.mjs` | host 半边行为测试（协议/超时/中止/清理/设置白名单/日志/race 6 场景/notify 协议/提问透传/turn-stopping/开关矩阵/manifest 声明），**57/57 绿** |
-| `scripts/sync-to-plugin-dir.mjs` | 同步到运行副本 `%USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\`（源目录含中文路径不能 junction，用复制；`--dry-run` 预览） |
+| `scripts/sync-to-plugin-dir.mjs` | 同步到运行副本（默认源 `~/.dsh/<插件源目录>/`；支持 `$DSH_SOURCE_DIR` 显式指定，未设时自动探测。源目录含中文路径不能 junction，用复制；`--dry-run` 预览） |
 | `.gitignore` | 排除 `node_modules/ .ref/ .log/ .tmp/`（`.ref` 是 100MB+ 内核解包，绝不进 git） |
 | `.ref/` | 只读参考资料：`asar-full\dsh\`（内核全量解包）、`hooks-claude-code\`、`asar-tool\`。**参考用，不构建、不发布** |
 
 ## 内核契约（侦察结论，含出处）
 
-- **approval 服务**：`app.asar.unpacked\dsh\node_modules\@deepseek-ai\dsh-user-approval\lib\index.js` — ApprovalService `request(req)` → `decide()` → `ctx.waterfall(scopeTarget(req.agent, req.agent), 'approval/request', req, () => Promise.resolve('unavailable'))`。
+- **approval 服务**：`.ref\asar-full\dsh\node_modules\@deepseek-ai\dsh-user-approval\lib\index.js`（rc.2 参考解包；rc.4 起内核为单文件 asar，同代码见 app.asar 文本 :1829752）— ApprovalService `request(req)` → `decide()` → `ctx.waterfall(scopeTarget(req.agent, req.agent), 'approval/request', req, () => Promise.resolve('unavailable'))`。
 - **并行 answerer 模式**（已定稿）：`ctx.on('approval/request', async (req, next) => { 投递 HUD（不等待）→ Promise.race([next() promise, HUD 等待 promise]) → 先到先得 })`。原生 `unavailable`（无渠道）≠ 收摊信号，HUD 继续独立裁决。插件在启动期 apply，先于 remote 桥 / ACP 的运行期注册（先注册 = waterfall 外层），天然位于最外层。先例：`dsh-acp\lib\index.js:1158`（根 ctx 注册可收 agent scope waterfall）。
-- **cordis waterfall**：`.ref\asar-full\dsh\node_modules\@deepseek-ai\cordis\lib\index.js:317-325` — 监听器按注册顺序组洋葱链，`next()` 弹下一个，最外层返回值为最终结果。
+- **cordis waterfall**：`.ref\asar-full\dsh\node_modules\@deepseek-ai\cordis\lib\index.js:317-325`（rc.2 参考解包）— 监听器按注册顺序组洋葱链，`next()` 弹下一个，最外层返回值为最终结果。
 - **并行裁决模式**：answerer 收到请求 → `deliverRequest` 立即投递（HUD 与原生卡片同时出现）→ `next()` 不先 await，其 promise 与 `waitForDecision` 做 `Promise.race` → 先到者赢。**关键**：原生链返回 `unavailable`（无渠道）时不 abort HUD（继续独立裁决）；只有真裁决才收摊。收摊时 `ac.abort()` + 两侧 promise `.catch(()=>{})` 防 unhandled rejection。
 - **outcome 映射**（`dsh-tools\lib\index.js:3535-3551`）：allowed-once→allow；rejected→deny（`the user rejected tool "<name>"`）；cancelled→deny；unavailable→deny（`requires approval, but no approval channel is available`）。
 - **HUD 文件协议**（HUD 侧已实现，不可改）：drop `%LOCALAPPDATA%\AgentHUD\events\drop\<id>.json`（请求），resp `...\resp\<id>.json`（响应）。confirm 请求 `{id:32hex, app:'dsh', kind:'confirm', title, body, buttons:['允许','拒绝'], timeout, created}`；响应 `{id, button:'允许'|'拒绝'|null, timeout:boolean}`。映射：允许→`'allowed-once'`；拒绝/超时→`'rejected'`；中止→`'cancelled'`。notify 请求（v0.2.0）：`{id, app:'dsh', kind:'notify', title, body, timeout, created}`（无 buttons）——HUD 无按钮气泡、按自身 `_life` 收摊、消费后**立即删 drop 文件**、不写 resp；HUD 未运行时残留由插件 60s 延迟清理兜底。
@@ -97,8 +97,8 @@ node scripts/sync-to-plugin-dir.mjs       # 同步到运行副本
 
 装配 SOP（**已实装 ✅ 20261029**，实测记录）：
 1. `node scripts/sync-to-plugin-dir.mjs`（工作区 → <插件源目录> 运行副本）✅
-2. 官方 CLI 装入（**实测可对运行中的 desktop profile 直接执行，无需先退出 DSH**）：`<DSH 安装目录>\resources\runtime\cli\bin\dsh.cmd plugin --profile desktop add %USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud`（绝对路径 spec；`dsh plugin` = pnpm 转发 + reconcile，写入锁 `withFileLock(package.json)` 只在包操作瞬间持有）。**绝不手写 profile 的 package.json / cordis.patch.yml / 跑裸 pnpm**（官方 skill 明令禁止，`dsh-agent-preset\skills\cordis-plugin-development\SKILL.md:10`）。⚠️ pnpm add 会顺带同步 manifest↔lockfile 的历史漂移（本次顺带修了 billion-context 0.1.208→0.209），属正常修复。
-3. 验证五点（本次 1-3 已验证 ✅）：profile `package.json` 出现 `"@dsh-external/dsh-agent-hud": "link:..."` 且 `dsh.profile.bundles` 末尾追加（本次第 21 位）；`node_modules\@dsh-external\dsh-agent-hud` junction 指向 <插件源目录> ✅；包内 cordis.patch.yml 可达 ✅；GUI 插件管理页列表正常；设置页出现「Agent HUD 审批桥」分区（启动图判据 `GET http://127.0.0.1:19387/plugins/??@dsh-external/dsh-agent-hud/client.js&rev=<sha1前12位>`，rev 变了 = 新代码已装载）；随便升级一个市场包成功且本插件仍在。
+2. 官方 CLI 装入（**实测可对运行中的 desktop profile 直接执行，无需先退出 DSH**）：`<DSH 安装目录>\resources\runtime\cli\bin\dsh.cmd plugin --profile desktop add C:\Users\sober\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud`（绝对路径 spec；`dsh plugin` = pnpm 转发 + reconcile，写入锁 `withFileLock(package.json)` 只在包操作瞬间持有）。**绝不手写 profile 的 package.json / cordis.patch.yml / 跑裸 pnpm**（官方 skill 明令禁止，`dsh-agent-preset\skills\cordis-plugin-development\SKILL.md:10`）。⚠️ pnpm add 会顺带同步 manifest↔lockfile 的历史漂移（本次顺带修了 billion-context 0.1.208→0.209），属正常修复。
+3. 验证五点（本次 1-3 已验证 ✅）：profile `package.json` 出现 `"@dsh-external/dsh-agent-hud": "link:..."` 且 `dsh.profile.bundles` 末尾追加（本次第 21 位）；`node_modules\@dsh-external\dsh-agent-hud` junction 指向 <插件源目录> ✅；包内 cordis.patch.yml 可达 ✅；GUI 插件管理页列表正常；设置页出现「Agent HUD 审批桥」分区（启动图判据 `GET http://127.0.0.1:<GUI端口>/plugins/??@dsh-external/dsh-agent-hud/client.js&rev=<sha1前12位>`，端口随实例变化，rev 变了 = 新代码已装载）；随便升级一个市场包成功且本插件仍在。
 4. peerDependencies 警告（react/react-dom/dsh-client-ui-slots/dsh-client-locale）**无害**：client bundle 依赖由宿主运行时注入，不走 node_modules 解析，与 dsh-vault 同形态。
 
 干扰面自查（本插件对市场零干扰）：包名 `@dsh-external/dsh-agent-hud` 与市场无重名；webServer 前缀路径唯一；settings.section id 独立；approval/request 链参与与包管理无关；无 postinstall/构建脚本。

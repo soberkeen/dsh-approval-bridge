@@ -2,8 +2,6 @@
 
 > **配套项目**：[Agent HUD](https://github.com/soberkeen/agent-hud) —— Windows 桌面角色侧边栏（气泡通知宿主）。本插件是 **Agent HUD 的 DSH（DeepSeek Harness）通知适配辅助插件**：把 DSH 运行期的权限确认、提问、任务回合完成事件桥接到 Agent HUD 气泡。
 
-> DSH approval bridge — route agent permission confirmations to a local desktop HUD sidebar.
->
 > DSH 插件（v0.2.1）：把 agent 运行期间的三类事件桥接到本地 **Agent HUD** 桌面侧边栏。**权限确认**双通道并行——DSH 原生卡片与 HUD 角色气泡同时弹出，任意一边点「允许/拒绝」即生效，先到先得；**DSH 提问**与**任务回合完成**以 HUD 纯提醒气泡（notify，无按钮）告知，无需操作。
 
 ## 工作方式
