@@ -175,7 +175,7 @@ GET  …/api/decisions?limit=20    POST …/api/clear-log    POST …/api/sweep
 ### 4.3 DSH 侧健康判据
 
 - 插件已实装 desktop profile（`dsh.profile.bundles` 含 `@dsh-external/dsh-agent-hud`，
-  junction → `C:\Users\sober\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\`）。
+  junction → `%USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\`）。
 - client 启动图：`GET http://127.0.0.1:<GUI端口>/plugins/??@dsh-external/dsh-agent-hud/client.js`
   返回 JS 即装配成功（端口随实例变化）。
 - DSH 状态目录：`~/.dsh/plugin-data/dsh-agent-hud/`（`settings.json` + `decisions.jsonl`）。
@@ -292,8 +292,8 @@ HUD 侧无需再改；插件侧无遗留缺陷。
 | DSH 插件工作区（源码） | `<插件工作区>\` |
 | 协议层实现（参考读） | `lib/hud.js`（协议、原子写、轮询、清理） |
 | 审批桥主逻辑（参考读） | `lib/index.js`（并行 race 应答器） |
-| 运行副本（DSH 实际加载） | `C:\Users\sober\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\` |
-| DSH 设置/日志 | `C:\Users\sober\.dsh\plugin-data\dsh-agent-hud\` |
+| 运行副本（DSH 实际加载） | `%USERPROFILE%\.dsh\<插件源目录>\@dsh-external\dsh-agent-hud\` |
+| DSH 设置/日志 | `%USERPROFILE%\.dsh\plugin-data\dsh-agent-hud\` |
 | HUD 协议目录 | `%LOCALAPPDATA%\AgentHUD\events\{drop,resp}\` |
 | 需求文档 | `<需求文档目录>\DSH-插件需求.md` |
 | 项目索引（DSH 侧全景） | `<插件工作区>\agent.md` |
